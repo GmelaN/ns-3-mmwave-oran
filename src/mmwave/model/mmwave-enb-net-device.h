@@ -119,6 +119,8 @@ namespace ns3 {
 
             void KpmSubscriptionCallback(E2AP_PDU_t *sub_req_pdu);
 
+            void KpmLatencyCallback (E2AP_PDU_t* sub_req_pdu);
+
             void ControlMessageReceivedCallback(E2AP_PDU_t *sub_req_pdu);
             void SetStartTime(uint64_t);
 
