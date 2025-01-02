@@ -610,17 +610,23 @@ MmWaveEnbNetDevice::GetE2Termination() const
 
 void
   MmWaveEnbNetDevice::ControlMessageReceivedCallback(E2AP_PDU_t *sub_req_pdu) {
-    NS_LOG_DEBUG("\n\nLteEnbNetDevice::ControlMessageReceivedCallback: Received RIC Control Message");
+    // NS_LOG_DEBUG("\n\nLteEnbNetDevice::ControlMessageReceivedCallback: Received RIC Control Message");
+
+      NS_LOG_UNCOND("\n\nMmwaveEnbNetDevice::ControlMessageReceivedCallback: Received RIC Control Message");
 
     // Create RIC Control ACK
     Ptr <RicControlMessage> controlMessage = Create<RicControlMessage>(sub_req_pdu);
-    NS_LOG_INFO("After RicControlMessage::RicControlMessage constructor");
-    NS_LOG_INFO("Request type " << controlMessage->m_requestType);
+    // NS_LOG_INFO("After RicControlMessage::RicControlMessage constructor");
+    // NS_LOG_INFO("Request type " << controlMessage->m_requestType);
+
+    NS_LOG_UNCOND("After RicControlMessage::RicControlMessage constructor");
+    NS_LOG_UNCOND("Request type " << controlMessage->m_requestType);
+
     switch (controlMessage->m_requestType) {
         case RicControlMessage::ControlMessageRequestIdType::TS : {
             NS_LOG_INFO("TS, do the handover");
             // do handover
-            /*Ptr <OctetString> imsiString =
+            Ptr <OctetString> imsiString =
                     Create<OctetString>((void *) controlMessage->m_e2SmRcControlHeaderFormat1->ueID.choice.gNB_UEID,
                                         controlMessage->m_e2SmRcControlHeaderFormat1->ueID.present);  //this line need to fix 
             char *end;
@@ -635,14 +641,40 @@ void
                                                 m_rrc, imsi, targetCellId);
             } else {
                 Simulator::Schedule(Seconds(0), &LteEnbRrc::PerformHandoverToTargetCell,
-                                    m_rrc, imsi, targetCellId);*/
+                                    m_rrc, imsi, targetCellId);
             }
             break;
-            default: {
-            NS_LOG_INFO("Unrecognized id type of Ric Control Message");
+        }
+        case RicControlMessage::ControlMessageRequestIdType::QoS : {
+            // use SetUeQoS()
+            NS_FATAL_ERROR("For QoS use file-based control.");
             break;
         }
-        }
+
+        default: {
+            Ptr<OctetString> gnbUeid = Create<OctetString>(
+                (void *) controlMessage->m_e2SmRcControlHeaderFormat1->ueID.choice.gNB_UEID,
+                controlMessage->m_e2SmRcControlHeaderFormat1->ueID.present
+            );
+
+            NS_LOG_UNCOND("[ControlMessageReceivedCallback] Unrecognized id type of Ric Control Message");
+            NS_LOG_UNCOND("gNB_UEID: " << gnbUeid->DecodeContent());
+
+            NS_LOG_UNCOND("RIC_STYLE_TYPE: " << controlMessage->m_e2SmRcControlHeaderFormat1->ric_Style_Type);
+            break;
+          }
+      }
+
+
+    // ONLY INTEGER
+    std::vector<int> params = 
+      controlMessage->ExtractRANParametersFromControlMessage(
+        controlMessage->m_e2SmRcControlMessageFormat1
+      );
+    for(auto i = params.begin(); i < params.end(); i++) {
+      NS_LOG_UNCOND("RAN PARAMETERS: " << *i);
+    }
+    NS_LOG_UNCOND("CELL ID: " << this->m_cellId);
     }
 
 void
@@ -655,10 +687,20 @@ MmWaveEnbNetDevice::SetE2Termination(Ptr<E2Termination> e2term)
   if (!m_forceE2FileLogging) {
       long m_e2_func_id = long (e2_func_id);
       long m_rc_e2_func_id = long(rc_e2_func_id);
+  
+      // set KPM Subscription Request callback
       Ptr<KpmFunctionDescription> kpmFd = Create<KpmFunctionDescription> ();
       e2term->RegisterKpmCallbackToE2Sm (
               m_e2_func_id, kpmFd,std::bind (&MmWaveEnbNetDevice::KpmSubscriptionCallback, this, std::placeholders::_1));
 
+      // set KPM latency metric callback
+      // long m_e2_func_id_latency = 142;
+      // Ptr<KpmFunctionDescription> kpmFd2 = Create<KpmFunctionDescription>();
+      // e2term->RegisterKpmCallbackToE2Sm(
+      //   m_e2_func_id_latency, kpmFd, std::bind(&MmWaveEnbNetDevice::KpmLatencyCallback, this, std::placeholders::_1)
+      // );
+
+      // set RIC control callback
       Ptr <RicControlFunctionDescription> ricCtrlFd = Create<RicControlFunctionDescription>();
       e2term->RegisterSmCallbackToE2Sm(m_rc_e2_func_id, ricCtrlFd,
                                       std::bind(&MmWaveEnbNetDevice::ControlMessageReceivedCallback,
@@ -667,6 +709,43 @@ MmWaveEnbNetDevice::SetE2Termination(Ptr<E2Termination> e2term)
       e2term->RegisterCallbackFunctionToE2Sm(1, std::bind(&MmWaveEnbNetDevice::stopSendingAndCancelSchedule, this));
     }
 }
+
+
+/**
+* KPM Latency Metric Callback.
+* This function is triggered whenever a RIC Subscription Request for
+* the KPM RAN Function is received.
+*
+* \param pdu request message
+*/
+void
+MmWaveEnbNetDevice::KpmLatencyCallback (E2AP_PDU_t* sub_req_pdu)
+{
+  NS_LOG_DEBUG ("\nReceived RIC Subscription Request, cellId= " << m_cellId << "\n");
+
+  E2Termination::RicSubscriptionRequest_rval_s params = m_e2term->ProcessRicSubscriptionRequest (sub_req_pdu);
+  NS_LOG_DEBUG ("requestorId " << +params.requestorId <<
+                 ", instanceId " << +params.instanceId <<
+                 ", ranFuncionId " << +params.ranFuncionId <<
+                 ", actionId " << +params.actionId);
+
+  if (!m_stopSendingMessages && !m_isReportingEnabled && !m_forceE2FileLogging)
+  {
+    BuildAndSendReportMessage (params);
+    m_isReportingEnabled = true;
+  }
+
+}
+
+
+
+
+
+
+
+
+
+
 
 std::string
 MmWaveEnbNetDevice::GetImsiString(uint64_t imsi)
